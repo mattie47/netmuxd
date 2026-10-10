@@ -77,9 +77,103 @@ pub async fn list_devices_merged(
             Vec::new()
         }
     };
+    list.retain(|entry| entry.as_dictionary().is_none_or(is_usb_entry));
     list.extend(network_devices);
 
     Ok(UsbmuxdServerResponse::DeviceList(list)
         .into_packet(tag)
         .into())
+}
+
+/// Whether an upstream device entry (a `DeviceList` item, or an `Attached`
+/// frame) is a USB device. Only those are passed on: the shim serves network
+/// devices itself, and upstream's own network entries are unreachable from
+/// here and can be unreadable too. Windows' Apple Mobile Device Service lists
+/// a phone on Wi-Fi with a Windows `sockaddr` (AF_INET6 is 23 there, an IPv6
+/// link-local address), and libimobiledevice on Linux fails the whole device
+/// list on it. An entry without a ConnectionType is kept.
+pub fn is_usb_entry(entry: &plist::Dictionary) -> bool {
+    entry
+        .get("Properties")
+        .and_then(|p| p.as_dictionary())
+        .and_then(|p| p.get("ConnectionType"))
+        .and_then(|c| c.as_string())
+        .is_none_or(|c| c == "USB")
+}
+
+/// Drops upstream `Listen` frames for non-USB devices (see `is_usb_entry`),
+/// and the `Detached` frames that follow them.
+#[derive(Default)]
+pub struct ListenFilter {
+    hidden: std::collections::HashSet<u64>,
+}
+
+impl ListenFilter {
+    /// Whether to relay this frame to the client. Frames that can't be parsed
+    /// are relayed as they are.
+    pub fn keep(&mut self, frame: &[u8]) -> bool {
+        let Ok(packet) = RawPacket::try_from(frame) else {
+            return true;
+        };
+        let id = packet
+            .plist
+            .get("DeviceID")
+            .and_then(|i| i.as_unsigned_integer());
+        match packet.plist.get("MessageType").and_then(|m| m.as_string()) {
+            Some("Attached") if !is_usb_entry(&packet.plist) => {
+                if let Some(id) = id {
+                    self.hidden.insert(id);
+                }
+                false
+            }
+            Some("Detached") => id.is_none_or(|id| !self.hidden.remove(&id)),
+            _ => true,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn device(id: u64, connection: &str) -> plist::Dictionary {
+        let mut properties = plist::Dictionary::new();
+        properties.insert("ConnectionType".into(), connection.into());
+        properties.insert("DeviceID".into(), id.into());
+        let mut entry = plist::Dictionary::new();
+        entry.insert("DeviceID".into(), id.into());
+        entry.insert("MessageType".into(), "Attached".into());
+        entry.insert("Properties".into(), properties.into());
+        entry
+    }
+
+    fn frame(dict: plist::Dictionary) -> Vec<u8> {
+        RawPacket::new(dict, 1, 8, 0).into()
+    }
+
+    fn detached(id: u64) -> Vec<u8> {
+        let mut dict = plist::Dictionary::new();
+        dict.insert("DeviceID".into(), id.into());
+        dict.insert("MessageType".into(), "Detached".into());
+        frame(dict)
+    }
+
+    #[test]
+    fn only_usb_entries_are_usb() {
+        assert!(is_usb_entry(&device(1, "USB")));
+        assert!(!is_usb_entry(&device(2, "Network")));
+        assert!(is_usb_entry(&plist::Dictionary::new()));
+    }
+
+    #[test]
+    fn listen_filter_drops_network_devices_and_their_detach() {
+        let mut filter = ListenFilter::default();
+        assert!(filter.keep(&frame(device(9, "USB"))));
+        assert!(!filter.keep(&frame(device(11, "Network"))));
+        assert!(!filter.keep(&detached(11)));
+        assert!(filter.keep(&detached(9)));
+        // A later detach for the same id isn't hidden twice.
+        assert!(filter.keep(&detached(11)));
+        assert!(filter.keep(b"not a frame"));
+    }
 }

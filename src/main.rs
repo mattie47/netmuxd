@@ -1082,8 +1082,10 @@ async fn upstream_listen_pump(addr: UsbmuxdAddr, tx: tokio::sync::mpsc::Unbounde
             Ok(mut up) => {
                 info!("Upstream Listen stream connected");
                 backoff = INITIAL_BACKOFF;
+                let mut filter = upstream::ListenFilter::default();
                 loop {
                     match upstream::read_frame(&mut *up).await {
+                        Ok(frame) if !filter.keep(&frame) => {}
                         Ok(frame) => {
                             // Stop for good once the client's Listen session
                             // ends (the receiver was dropped).
