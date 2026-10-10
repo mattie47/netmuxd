@@ -18,7 +18,7 @@ use netmuxd::{
         self, ListenerEvent, ManagerRequest, ManagerSender, SHIM_NETWORK_ID_BASE,
         new_manager_thread,
     },
-    mdns,
+    mdns, net,
     pairing_file::PairingFileFinder,
     upstream,
 };
@@ -751,7 +751,14 @@ async fn handle_stream(
                             let _ = socket.write_all(&res).await;
                             continue;
                         }
-                        if let Err(e) = tokio::io::copy_bidirectional(&mut *up, &mut socket).await {
+                        if let Err(e) = tokio::io::copy_bidirectional_with_sizes(
+                            &mut *up,
+                            &mut socket,
+                            net::RELAY_BUFFER,
+                            net::RELAY_BUFFER,
+                        )
+                        .await
+                        {
                             info!("Upstream proxied stream stopped: {e:?}");
                         }
                         return;
@@ -794,7 +801,7 @@ async fn handle_stream(
                     let upstream: Result<Upstream, String> = match lookup.connection_type.as_str() {
                         "Network" => match lookup.network_address {
                             Some(addr) => {
-                                match tokio::net::TcpStream::connect((addr, port)).await {
+                                match net::connect(std::net::SocketAddr::new(addr, port)).await {
                                     Ok(s) => Ok(Box::new(s) as Upstream),
                                     Err(e) => Err(format!("tcp connect: {e:?}")),
                                 }
@@ -849,7 +856,12 @@ async fn handle_stream(
                         _ = killed => {
                             info!("Bidirectional stream stopped via heartbeat failure");
                         }
-                        e = tokio::io::copy_bidirectional(&mut *upstream, &mut socket) => {
+                        e = tokio::io::copy_bidirectional_with_sizes(
+                            &mut *upstream,
+                            &mut socket,
+                            net::RELAY_BUFFER,
+                            net::RELAY_BUFFER,
+                        ) => {
                             info!("Bidirectional stream stopped: {e:?}");
                         }
                     }

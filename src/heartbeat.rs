@@ -24,7 +24,7 @@ pub async fn heartbeat(
             LockdownClient::LOCKDOWND_PORT,
         );
 
-        let socket = match tokio::net::TcpStream::connect(socket).await {
+        let socket = match crate::net::connect(socket).await {
             Ok(s) => s,
             Err(e) => {
                 warn!("Failed to connect to lockdown port: {e:?}");
@@ -74,7 +74,7 @@ pub async fn heartbeat(
         };
 
         let socket = SocketAddr::new(device.network_address.unwrap(), port);
-        let socket = match tokio::net::TcpStream::connect(socket).await {
+        let socket = match crate::net::connect(socket).await {
             Ok(s) => s,
             Err(e) => {
                 warn!("Failed to connect to heartbeat port: {e:?}");

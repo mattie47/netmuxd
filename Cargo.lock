@@ -1097,6 +1097,7 @@ dependencies = [
  "nusb",
  "plist",
  "plist-macro",
+ "socket2",
  "thiserror",
  "tokio",
  "uuid",

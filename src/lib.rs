@@ -30,6 +30,8 @@ pub mod daemon;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod mdns;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod net;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod pairing_file;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod upstream;

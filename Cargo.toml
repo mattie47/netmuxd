@@ -57,6 +57,8 @@ nusb = { git = "https://github.com/jkcoxson/nusb", default-features = false, fea
 ], branch = "fix/webusb-drop" }
 crossfire = { version = "2.1", features = ["tokio"] }
 mdns-sd = "0.19"
+# Keepalive and TCP_USER_TIMEOUT on connections to network devices (src/net.rs).
+socket2 = { version = "0.6", features = ["all"] }
 # Local path until the idevice release carrying `usbmuxd::server` and the
 # `mdns` matcher lands; switch back to a published version before publishing.
 idevice = { version = "0.1.64", default-features = false, features = [
